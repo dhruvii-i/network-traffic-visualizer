@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
+import random
 
-st.set_page_config(page_title="Network Traffic Comparison", layout="wide")
+st.set_page_config(page_title="Network Traffic Demo", layout="wide")
 
 @st.cache_data
 def load_data():
@@ -14,38 +15,72 @@ def load_data():
     return real, ctgan, tablegan, custom
 
 real, ctgan, tablegan, custom = load_data()
+models = {"Real": real, "CTGAN": ctgan, "TableGAN": tablegan, "Custom": custom}
 
-st.title("🔍 Real vs Synthetic Network Traffic Dashboard")
+st.title("📶 Real vs Synthetic Network Traffic Simulator")
 
-# Feature comparison
-st.header("📊 Feature Distribution Comparison")
-features = ['dur', 'spkts', 'dpkts', 'sbytes', 'dbytes', 'rate', 'sload', 'dload']
-selected_feature = st.selectbox("Select a feature", features)
+# -------------------
+# 1. Packet Flow Animation (Time Slider)
+# -------------------
+st.header("📈 Packet Flow Over Time")
 
-fig, ax = plt.subplots(figsize=(12, 5))
-sns.kdeplot(real[selected_feature], label="Real", fill=True)
-sns.kdeplot(ctgan[selected_feature], label="CTGAN", fill=False)
-sns.kdeplot(tablegan[selected_feature], label="TableGAN", fill=False)
-sns.kdeplot(custom[selected_feature], label="Custom Model", fill=False)
-plt.legend()
-st.pyplot(fig)
+selected_model = st.selectbox("Choose a dataset", list(models.keys()))
+df = models[selected_model]
 
-# Spot the difference
-st.header("🕵️ Spot the Difference")
-sample = st.radio("Choose sample type", ["Real", "CTGAN", "TableGAN", "Custom Model"])
-sample_size = st.slider("Number of rows", 5, 20, 10)
-
-if sample == "Real":
-    st.dataframe(real.sample(sample_size))
-elif sample == "CTGAN":
-    st.dataframe(ctgan.sample(sample_size))
-elif sample == "TableGAN":
-    st.dataframe(tablegan.sample(sample_size))
+if "timestamp" not in df.columns:
+    st.warning("No timestamp column found. Skipping animated view.")
 else:
-    st.dataframe(custom.sample(sample_size))
+    df = df.sort_values(by="timestamp").reset_index(drop=True)
+    time_range = st.slider("Select time index", 0, len(df)-1, 50, 1)
+    flow_cols = ["sbytes", "dbytes", "rate"]
 
-# Mean metric comparison
+    fig, ax = plt.subplots(figsize=(10, 4))
+    df.iloc[:time_range][flow_cols].plot(ax=ax)
+    ax.set_title(f"{selected_model} - Flow Metrics Over Time")
+    ax.set_xlabel("Packets")
+    ax.set_ylabel("Metric Value")
+    st.pyplot(fig)
+
+# -------------------
+# 2. Spot the Difference Game
+# -------------------
+st.header("🕵️ Spot the Difference: Real vs Synthetic")
+
+random_model = random.choice(["Real", "CTGAN", "TableGAN", "Custom"])
+random_row = models[random_model].sample(1).reset_index(drop=True)
+
+st.dataframe(random_row)
+
+guess = st.radio("Is this Real or Synthetic?", ["Real", "Synthetic"])
+if st.button("Reveal Answer"):
+    if guess == "Real" and random_model == "Real":
+        st.success("✅ Correct! It was Real.")
+    elif guess == "Synthetic" and random_model != "Real":
+        st.success(f"✅ Correct! It was {random_model}.")
+    else:
+        st.error(f"❌ Oops! It was actually {random_model}.")
+
+# -------------------
+# 3. Protocol Distribution Comparison
+# -------------------
+if 'proto' in real.columns:
+    st.header("📡 Protocol Distribution")
+
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    real['proto'].value_counts().plot(kind='bar', alpha=0.5, label='Real', ax=ax2)
+    ctgan['proto'].value_counts().plot(kind='bar', alpha=0.5, label='CTGAN', ax=ax2)
+    tablegan['proto'].value_counts().plot(kind='bar', alpha=0.5, label='TableGAN', ax=ax2)
+    custom['proto'].value_counts().plot(kind='bar', alpha=0.5, label='Custom', ax=ax2)
+
+    ax2.legend()
+    ax2.set_title("Protocol Frequency in Real vs Synthetic Data")
+    st.pyplot(fig2)
+
+# -------------------
+# 4. Mean Metric Comparison
+# -------------------
 st.header("📋 Feature Averages (Real vs Synthetic)")
+features = ['dur', 'spkts', 'dpkts', 'sbytes', 'dbytes', 'rate', 'sload', 'dload']
 selected_metrics = st.multiselect("Select features", features, default=features[:4])
 compare_df = pd.DataFrame({
     'Real': real[selected_metrics].mean(),
@@ -54,11 +89,3 @@ compare_df = pd.DataFrame({
     'Custom': custom[selected_metrics].mean()
 }).T.round(2)
 st.dataframe(compare_df)
-
-# Optional: Anomaly Detection
-st.header("🚨 Anomaly Detection Performance (Demo Results)")
-st.table({
-    "Model": ["CTGAN", "TableGAN", "Custom"],
-    "Detection Rate (%)": [91.2, 87.8, 93.4],
-    "False Positives (%)": [6.3, 7.1, 4.9]
-})
